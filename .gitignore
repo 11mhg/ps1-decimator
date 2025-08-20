@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.Python/
+.venv/
+venv/
+
+# Blender related
+*.blend
+*.blend1
+*.blend2
+*.crash.txt
+*.factory_startup.blend
+*/tmp* # Blender's temporary files
