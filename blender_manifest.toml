@@ -9,10 +9,10 @@ maintainer = "Hamada Gasmallah"
 
 blender_version_min = "4.2.0"
 
-license = ["SPDX:MIT"]
+license = ['SPDX:GPL-3.0-or-later']
 
 # Optional but nice:
-tags = ["Modeling", "Mesh", "Tools", "UV", "Retro", "Stylized"]
+tags = ["Modeling", "Mesh"]
 platforms = ["windows-x64"]
 
 [dependencies]
@@ -21,15 +21,9 @@ python = ["numpy>=1.24"]
 # Packaged files
 [build]
 paths = [
+  "__init__.py",
   "ps1_decimator",
   "icons/icon.png",
   "README.md",
   "LICENSE",
-]
-paths_exclude_pattern = [
-  "/.git/",
-  "__pycache__/",
-  "/.venv/",
-  "/.github/",
-  ".gitignore",
 ]
