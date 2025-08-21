@@ -1,0 +1,1 @@
+from .ps1_decimator import register, unregister

@@ -1,0 +1,35 @@
+schema_version = "1.0.0"
+
+id = "ps1_decimator"
+name = "PS1 Decimator"
+version = "0.1.0"
+type = "add-on"
+tagline = "Stylized low-poly decimation + UV pixelation for PS1 aesthetics"
+maintainer = "Hamada Gasmallah"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:MIT"]
+
+# Optional but nice:
+tags = ["Modeling", "Mesh", "Tools", "UV", "Retro", "Stylized"]
+platforms = ["windows-x64"]
+
+[dependencies]
+python = ["numpy>=1.24"]
+
+# Packaged files
+[build]
+paths = [
+  "ps1_decimator",
+  "icons/icon.png",
+  "README.md",
+  "LICENSE",
+]
+paths_exclude_pattern = [
+  "/.git/",
+  "__pycache__/",
+  "/.venv/",
+  "/.github/",
+  ".gitignore",
+]
