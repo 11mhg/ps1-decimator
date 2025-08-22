@@ -1,5 +1,15 @@
+import os
 import bpy
 import numpy as np
+
+def save_downsampled_image(image, export_path):
+    if not image:
+        return
+    
+    filename = os.path.join(export_path, f"{image.name}_downsampled.png")
+    image.file_format = "PNG"
+    image.save_render(filepath=filename)
+    return
 
 def quantize_image(image, num_bits=5):
     if not image.has_data:
@@ -20,7 +30,7 @@ def quantize_image(image, num_bits=5):
     return
     
 
-def replace_material_with_downsampled(material, tex_size):
+def replace_material_with_downsampled(material, tex_size, num_bits=5, export_path=None):
     if not material.node_tree:
         return
 
@@ -43,7 +53,10 @@ def replace_material_with_downsampled(material, tex_size):
 
             # Rescale in-place (Blender API handles pixel resampling)
             downsampled.scale(new_width, new_height)
-            quantize_image(downsampled, num_bits=5)
+            quantize_image(downsampled, num_bits=num_bits)
 
             node.interpolation = 'Closest'
             node.image = downsampled
+            
+            if export_path is not None:
+                save_downsampled_image(node.image, export_path)

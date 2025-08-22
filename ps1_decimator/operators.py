@@ -2,6 +2,7 @@ import bpy
 import bmesh
 import numpy as np
 import heapq
+import traceback
 
 from mathutils import Vector
 
@@ -14,34 +15,26 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
     bl_label = "PS1 Decimator"
     bl_options = { "REGISTER", "UNDO" }
     
-    ratio: bpy.props.FloatProperty(
-        name="Decimation Ratio",
-        description = "The fraction of faces to keep",
-        default=0.2,
-        min=1e-1,
-        max=1.0,
+    poly_count_target: bpy.props.IntProperty(
+        name="Poly Count Target",
+        description = "The number of polygons to keep after decimation.",
+        default=1000,
+        min=1,
+        max=100000,
     ) # type: ignore
     
-    scale_factor: bpy.props.FloatProperty(
-        name="Scale Factor",
-        description = "The Scaling Factor the for the fixed precision grid",
-        default=4096,
-        min=1.0,
-        max=8192.0,
-    ) # type: ignore
-    
-    uv_steps: bpy.props.FloatProperty(
-        name="UV Quantization",
-        description = "Number of steps for UVs (higher = smoother, lower = blocky)",
-        default=16,
-        min=2,
-        max=512,
+    fixed_point_precision_bits: bpy.props.IntProperty(
+        name="Fixed-Point Precision in Bits",
+        description = "Precision of vertex coordinates (the number of bits to quantize vertex coordinates to)",
+        default=12,
+        min=1,
+        max=32,
     ) # type: ignore
     
     saliency_factor: bpy.props.FloatProperty(
         name="Saliency Factor",
         description = "Weight of saliency in the cost calculation (0=QEM only, 1=Saliency only)",
-        default=0.5,
+        default=0.75,
         min=0.0,
         max=1.0,
     ) # type: ignore
@@ -49,7 +42,7 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
     angle_factor: bpy.props.FloatProperty(
         name="Angle Factor",
         description = "A factor to weight angles in the cost calculation (0=ignore angles, 1=weigh angles heavily)",
-        default=0.0,
+        default=0.75,
         min=0.0,
         max=1.0,
     ) # type: ignore
@@ -57,9 +50,16 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
     tex_size: bpy.props.FloatProperty(
         name="Texture Size",
         description = "The target texture size after decimation",
-        default=256,
+        default=128,
         min=1,
         max=1024,
+    ) # type: ignore
+    
+    texture_export_path: bpy.props.StringProperty(
+        name="Export Directory",
+        description = "The directory to export the downsampled textures",
+        default="",
+        subtype="DIR_PATH",
     ) # type: ignore
     
     def _precompute_all_vertex_curvatures(self, bm):
@@ -118,7 +118,7 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
         saliency_cost = max(saliency_v1, saliency_v2)
         
         angle_bias = 1.0 
-        if len(e.link_faces) > 2:
+        if len(e.link_faces) >= 2:
             f1, f2 = e.link_faces
             dot = np.clip(np.dot(f1.normal, f2.normal), -1.0, 1.0)
             angle = np.arccos(dot)
@@ -127,6 +127,7 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
         
         cost = ((1.0 - self.saliency_factor) * qem_cost + self.saliency_factor * saliency_cost) * angle_bias
         return cost
+    
     
     def execute(self, context):
         obj = context.active_object
@@ -144,48 +145,72 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
         self._precompute_all_vertex_curvatures(bm)
         vertex_quadrics = self.compute_vertex_quadrics(bm)
         
-        target_count = int(len(bm.faces) * self.ratio)
+        target_count = min(self.poly_count_target, len(bm.faces))
         
         edge_queue = []
+        in_queue = set()
+        
+        def push_edge(edge, cost):
+            if edge.is_valid and edge not in in_queue:
+                heapq.heappush(edge_queue, (cost, edge))
+                in_queue.add(edge)
+        
         for edge in bm.edges:
             cost = self.compute_edge_cost(edge, vertex_quadrics)
-            heapq.heappush(edge_queue, (cost, edge.index))
+            push_edge(edge, cost)
         
+        start_faces = len(bm.faces)
         while len(bm.faces) > target_count and edge_queue:
-            cost, edge_idx = heapq.heappop(edge_queue)
+            cost, edge = heapq.heappop(edge_queue)
             
             if np.isinf(cost):
                 break
             
+            in_queue.discard(edge)
+            if not edge.is_valid or edge not in bm.edges:
+                continue
+            
             try:
-                edge = bm.edges[edge_idx]
                 if not edge.is_valid:
                     continue
                 
                 v1, v2 = edge.verts
-                ret = bmesh.ops.collapse_edge(bm, edge=edge)
+                bmesh.ops.collapse(bm, edges=[edge], uvs=True)
                 
-                new_vert = ret['verts']
+                new_vert = None
+                if v1.is_valid:
+                    new_vert = v1
+                elif v2.is_valid:
+                    new_vert = v2
                 
-                new_quadric = vertex_quadrics[v1] + vertex_quadrics[v2]
-                vertex_quadrics[new_vert] = new_quadric
+                if new_vert is None:
+                    continue
+                
+                q1 = vertex_quadrics.get(v1, np.zeros((4,4)))
+                q2 = vertex_quadrics.get(v2, np.zeros((4,4)))
+                vertex_quadrics[new_vert] = q1 + q2
                 
                 for e_affected in new_vert.link_edges:
                     new_cost = self.compute_edge_cost(e_affected, vertex_quadrics)
-                    heapq.heappush(edge_queue, (new_cost, e_affected.index))
+                    push_edge(e_affected, new_cost)
             except Exception as e:
+                print(f"Failed to collapse edge: {e}")
+                traceback.print_exc()  # <- full stack trace
                 continue
+        end_faces = len(bm.faces)
+        self.report({"INFO"}, f"Faces: {start_faces} → {end_faces} (−{start_faces - end_faces})")
         
         # vertex snapping
+        scale_factor = 2**self.fixed_point_precision_bits
         coords = np.array([v.co[:] for v in bm.verts], dtype=np.float32)
-        coords = np.round(coords * self.scale_factor) / self.scale_factor
+        coords = np.round(coords * scale_factor) / scale_factor
         for v, c in zip(bm.verts, coords):
             v.co = c
         
         # uv snapping
         for slot in obj.material_slots:
             if slot.material:
-                replace_material_with_downsampled(slot.material, self.tex_size)
+                replace_material_with_downsampled(slot.material, self.tex_size, self.texture_export_path)
         
         bm.to_mesh(obj.data)
         bm.free()
