@@ -6,7 +6,7 @@ def save_downsampled_image(image, export_path):
     if not image:
         return
     
-    filename = os.path.join(export_path, f"{image.name}_downsampled.png")
+    filename = os.path.join(export_path, f"{image.name}.png")
     image.file_format = "PNG"
     image.save_render(filepath=filename)
     return

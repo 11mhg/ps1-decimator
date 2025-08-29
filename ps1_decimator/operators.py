@@ -8,6 +8,12 @@ from mathutils import Vector
 
 from .materials import replace_material_with_downsampled
 
+def tri_area(a: Vector, b: Vector, c: Vector) ->  float:
+    return ((b - a).cross(c-a)).length * 0.5
+
+def safe_dot(a: Vector, b: Vector) -> float:
+    d = max(-1.0, min(1.0, a.normalized().dot(b.normalized())))
+    return d
 
 class OBJECT_OT_ps1_decimate(bpy.types.Operator):
     """Applies a stylistic decimation to the active mesh"""
@@ -62,162 +68,348 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
         subtype="DIR_PATH",
     ) # type: ignore
     
+    batch_size: bpy.props.IntProperty(
+        name="Batch Size",
+        description="Number of edges collapsed per modal tick",
+        default=128,
+        min=64,
+        max=1024,
+    ) # type: ignore
+
     def _precompute_all_vertex_curvatures(self, bm):
         self.vertex_curvatures = {}
         raw_curvatures = {}
-        
+
         for v in bm.verts:
             normal_sum = sum((f.normal.normalized() * f.calc_area() for f in v.link_faces), Vector((0.0, 0.0, 0.0)))
             raw_curvatures[v] = 0.0
             if len(v.link_faces) > 0 and v.normal.length > 1e-6:
                 avg_normal = normal_sum.normalized()
                 raw_curvatures[v] = 1.0 - np.dot(np.array(v.normal), np.array(avg_normal))
-        
+
         if raw_curvatures:
             all_values = list(raw_curvatures.values())
             min_curv = min(all_values)
             max_curv = max(all_values)
-            
+
             if max_curv - min_curv > 1e-6:
                 for v, curv in raw_curvatures.items():
                     self.vertex_curvatures[v] = (curv - min_curv) / (max_curv - min_curv)
             else:
                 for v in bm.verts:
                     self.vertex_curvatures[v] = 0.0
-                    
-    
+
     def compute_vertex_quadrics(self, bm):
         vertex_quadrics = {}
         for v in bm.verts:
-            Q = np.zeros((4, 4))
-            for f in v.link_faces:
-                normal = f.normal
-                d = -np.dot(f.calc_center_median(), normal)
-                Q += self.compute_face_quadric(normal, d)
-            vertex_quadrics[v] = Q        
+            vertex_quadrics[v] = np.zeros((4, 4), dtype=np.float64)
+        for f in bm.faces:
+            p = self._plane_from_face(f)
+            if p is None:
+                continue
+            K = np.outer(p, p)  # 4x4
+            for v in f.verts:
+                vertex_quadrics[v] += K
         return vertex_quadrics
     
-    def compute_face_quadric(self,normal, d=0.0):
-        n = np.array(normal).reshape(3, 1)
-        Q = np.zeros((4, 4))
-        Q[:3, :3] = n @ n.T
-        Q[:3, 3] = n.flatten() * d
-        Q[3, :3] = n.flatten() * d
-        Q[3,3] = d*d
-        return Q
+    def _plane_from_face(self, f: Vector):
+        n = Vector(f.normal)
+        if n.length < 1e-9:
+            return None
+        n = n.normalized()
+        p0 = f.verts[0].co
+        d = -n.dot(p0)
+        return np.array([n.x, n.y, n.z, d], dtype=np.float32)
     
+    def _optimal_contraction(self, v1, v2, Qmap):
+        Q = Qmap.get(v1, np.zeros((4, 4))) + Qmap.get(v2, np.zeros((4, 4)))
+        
+        A = Q.copy()
+        A[3, :] = np.array([0., 0., 0., 1.], dtype=np.float32)
+        b = np.array([0., 0., 0., 1.], dtype=np.float32)
+        
+        try:
+            v_bar_h = np.linalg.Solve(A, b)
+            if not np.all(np.isfinite(v_bar_h)):
+                raise np.linalg.LinAlgError()
+            v_bar = Vector((float(v_bar_h[0]), float(v_bar_h[1]), float(v_bar_h[2])))
+            cost = float(v_bar_h @ (Q @ v_bar_h.T))
+            return v_bar, cost
+        except Exception:
+            candidates = []
+            p1 = v1.co 
+            p2 = v2.co 
+            mid = (p1 + p2) * 0.5
+            for cand in (p1, p2, mid):
+                vh = np.array([cand.x, cand.y, cand.z, 1.0], dtype=np.float32)
+                c = float(vh @ (Q @ vh.T))
+                candidates.append((Vector(cand), c))
+            
+            v_bar, cost = min(candidates, key=lambda x: x[1])
+            return v_bar, float(cost)
+        
+        
+
     def compute_edge_cost(self, e, vertex_quadrics):
         v1, v2 = e.verts
-        Q = vertex_quadrics[v1] + vertex_quadrics[v2]
-        v_pos = np.append((v1.co + v2.co) / 2.0, 1.0)
-        qem_cost = v_pos @ Q @ v_pos.T
         
-        # mesh saliency component
-        saliency_v1 = self.vertex_curvatures.get(v1, 0.0)
-        saliency_v2 = self.vertex_curvatures.get(v2, 0.0)
-        saliency_cost = max(saliency_v1, saliency_v2)
+        if e.is_boundary or not e.is_manifold:
+            return float('inf')
         
-        angle_bias = 1.0 
-        if len(e.link_faces) >= 2:
-            f1, f2 = e.link_faces
-            dot = np.clip(np.dot(f1.normal, f2.normal), -1.0, 1.0)
-            angle = np.arccos(dot)
-            
-            angle_bias = 1.0 + (angle / np.pi) * self.angle_factor
-        
-        cost = ((1.0 - self.saliency_factor) * qem_cost + self.saliency_factor * saliency_cost) * angle_bias
+        v_bar, cost = self._optimal_contraction(v1, v2, vertex_quadrics)
         return cost
+        
+        
+        # Q = vertex_quadrics[v1] + vertex_quadrics[v2]
+        # v_pos = np.append((v1.co + v2.co) / 2.0, 1.0)
+        # qem_cost = v_pos @ Q @ v_pos.T
+
+        # saliency_v1 = self.vertex_curvatures.get(v1, 0.0)
+        # saliency_v2 = self.vertex_curvatures.get(v2, 0.0)
+        # saliency_cost = max(saliency_v1, saliency_v2)
+
+        # angle_bias = 1.0
+        # if len(e.link_faces) >= 2:
+        #     try:
+        #         f1, f2 = e.link_faces
+        #         dot = np.clip(np.dot(f1.normal, f2.normal), -1.0, 1.0)
+        #         angle = np.arccos(dot)
+        #         angle_bias = 1.0 + (angle / np.pi) * self.angle_factor
+        #     except Exception as exc:
+        #         print(exc)
+        #         traceback.print_exc()
+                
+
+        # return ((1.0 - self.saliency_factor) * qem_cost + self.saliency_factor * saliency_cost) * angle_bias    
     
-    
-    def execute(self, context):
+    #
+    # --- Operator lifecycle ---
+    #
+    def invoke(self, context, event):
         obj = context.active_object
         if not obj or obj.type != "MESH":
             self.report({"ERROR"}, "Active object is not a mesh")
             return {"CANCELLED"}
         
-        bm = bmesh.new()
-        bm.from_mesh(obj.data)
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-        #bmesh.ops.triangulate(bm, faces=bm.faces)
+        # Read settings from scene properties
+        scene = context.scene
+        self.poly_count_target = scene.poly_count_target
+        self.fixed_point_precision_bits = scene.fixed_point_precision_bits
+        self.saliency_factor = scene.saliency_factor
+        self.angle_factor = scene.angle_factor
+        self.tex_size = scene.tex_size
+        self.texture_export_path = scene.texture_export_path
+        self.batch_size = scene.batch_size
+        scene.is_decimating = True
         
-        self._precompute_all_vertex_curvatures(bm)
-        vertex_quadrics = self.compute_vertex_quadrics(bm)
+        self.obj = obj
+        self.bm = bmesh.new()
+        self.bm.from_mesh(obj.data)
+        self.bm.verts.ensure_lookup_table()
+        self.bm.edges.ensure_lookup_table()
+        self.bm.faces.ensure_lookup_table()
         
-        target_count = min(self.poly_count_target, len(bm.faces))
+        print(f"PS1 Decimator: Starting with {len(self.bm.faces)} faces, target: {self.poly_count_target}")
+        print(f"PS1 Decimator: Batch size: {self.batch_size}")
+
+        self._precompute_all_vertex_curvatures(self.bm)
+        self.vertex_quadrics = self.compute_vertex_quadrics(self.bm)
         
-        edge_queue = []
-        in_queue = set()
+        print(f"PS1 Decimator: Vertex quadrics computed")
+
+        self.target_count = min(self.poly_count_target, len(self.bm.faces))
+        self.start_faces = len(self.bm.faces)
+
+        self.calculate_edge_queue()
+
+        self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
+        context.window_manager.modal_handler_add(self)
         
-        def push_edge(edge, cost):
-            if edge.is_valid and edge not in in_queue:
-                heapq.heappush(edge_queue, (cost, edge))
-                in_queue.add(edge)
+        self.report({'INFO'}, f"Starting decimation: {self.start_faces} faces → {self.target_count} target")
+        self.batch_count = 0
+        return {"RUNNING_MODAL"}
+
+    def push_edge(self, edge, cost):
+        if edge.is_valid and edge not in self.in_queue:
+            heapq.heappush(self.edge_queue, (cost, id(edge), edge))
+            self.in_queue.add(edge)
+
+    def modal(self, context, event):
+        if event.type == "ESC":
+            self.cleanup(cancel=True, context=context)
+            return {"CANCELLED"}
         
-        for edge in bm.edges:
-            cost = self.compute_edge_cost(edge, vertex_quadrics)
-            push_edge(edge, cost)
-        
-        start_faces = len(bm.faces)
-        while len(bm.faces) > target_count and edge_queue:
-            cost, edge = heapq.heappop(edge_queue)
+        if event.type == "TIMER":
+            self.batch_count += 1
+            print(f"PS1 Decimator: Processing batch, current faces: {len(self.bm.faces)}, target: {self.target_count}")
+            context.scene.is_decimating = True
+            current_target_count = len(self.bm.faces) - self.batch_size
+            while len(self.bm.faces) > current_target_count:
+                batch = self.get_independent_edge_batch(self.batch_size)
+                
+                if len(self.bm.faces) <= self.target_count or not self.edge_queue or not batch:
+                    self.cleanup(cancel=False, context=context)
+                    return {"FINISHED"}
+                
+                try:
+                    #bmesh.ops.collapse(self.bm, edges=batch, uvs=True)
+                    bmesh.ops.dissolve_edges(self.bm, edges=batch, use_verts=True, use_face_split=True)
+                except Exception as e:
+                    print(f"Failed to collapse edge: {e}")
+                    traceback.print_exc()
+                    continue
             
-            if np.isinf(cost):
-                break
+            self.cleanup_pass()
+            #self.quadriflow_pass()
             
-            in_queue.discard(edge)
-            if not edge.is_valid or edge not in bm.edges:
+            # Update progress reporting
+            done = self.start_faces - len(self.bm.faces)
+            total = self.start_faces - self.target_count
+            if total > 0:
+                progress = float(min(100, int((done / total) * 100)))
+                context.scene.decimation_progress = progress
+                self.report({'INFO'}, f"Decimating... {progress}% ({len(self.bm.faces)}/{self.target_count} faces)")
+        
+        return {"RUNNING_MODAL"}
+    
+    def quadriflow_pass(self):
+        if self.batch_count % 100 != 0:
+            return
+        
+        target_faces = len(self.bm.faces)
+        
+        self.bm.from_mesh(self.obj.data)
+        self.obj.data.update()
+        self.bm.free()
+        
+        
+        bpy.ops.object.quadriflow_remesh(
+            target_faces=target_faces,
+            use_preserve_sharp=True,
+            use_mesh_symmetry=False,
+            use_preserve_boundary=True,
+        )
+        
+        self.bm = bmesh.new()
+        self.bm.from_mesh(self.obj.data)
+        self.bm.verts.ensure_lookup_table()
+        self.bm.edges.ensure_lookup_table()
+        self.bm.faces.ensure_lookup_table()
+        
+        self.vertex_quadrics = self.compute_vertex_quadrics(self.bm)
+        self.calculate_edge_queue()
+        
+        
+    def cleanup_pass(self):
+        if self.batch_count % 100 != 0:
+            return
+        # merge stray tris into quads
+        bmesh.ops.join_triangles(
+            self.bm,
+            faces=self.bm.faces,
+            angle_face_threshold=0.01,
+            angle_shape_threshold=1.0
+        )
+        # smooth vertex distribution
+        # bmesh.ops.smooth_vert(self.bm, verts=self.bm.verts, factor=0.3)
+        # remove doubles
+        bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=1e-6)
+        # recalc normals
+        bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
+        
+        #self.calculate_edge_queue()
+    
+    def calculate_edge_queue(self):
+        self.edge_queue = []
+        self.in_queue = set()
+
+        for edge in self.bm.edges:
+            cost = self.compute_edge_cost(edge, self.vertex_quadrics)
+            self.push_edge(edge, cost)
+        print(f"PS1 Decimator: Edge queue built with {len(self.edge_queue)} edges")
+    
+    def get_independent_edge_batch(self, max_batch_size=128):
+        """Get a batch of edges that don't share vertices"""
+        batch = []
+        used_vertices = set()
+        
+        temp_queue = []
+        
+        # Extract edges from queue until we have a safe batch
+        while len(batch) < max_batch_size and self.edge_queue:
+            cost, edge_id, edge = heapq.heappop(self.edge_queue)
+            self.in_queue.discard(edge)
+            
+            if not edge.is_valid:
                 continue
             
-            try:
-                if not edge.is_valid:
-                    continue
-                
-                v1, v2 = edge.verts
-                bmesh.ops.collapse(bm, edges=[edge], uvs=True)
-                
-                new_vert = None
-                if v1.is_valid:
-                    new_vert = v1
-                elif v2.is_valid:
-                    new_vert = v2
-                
-                if new_vert is None:
-                    continue
-                
-                q1 = vertex_quadrics.get(v1, np.zeros((4,4)))
-                q2 = vertex_quadrics.get(v2, np.zeros((4,4)))
-                vertex_quadrics[new_vert] = q1 + q2
-                
-                for e_affected in new_vert.link_edges:
-                    new_cost = self.compute_edge_cost(e_affected, vertex_quadrics)
-                    push_edge(e_affected, new_cost)
-            except Exception as e:
-                print(f"Failed to collapse edge: {e}")
-                traceback.print_exc()  # <- full stack trace
+            
+            if len(edge.verts) != 2:
                 continue
-        end_faces = len(bm.faces)
-        self.report({"INFO"}, f"Faces: {start_faces} → {end_faces} (−{start_faces - end_faces})")
+                
+            v1, v2 = edge.verts
+            
+            # Check if vertices are already used in this batch
+            if v1 not in used_vertices and v2 not in used_vertices:
+                batch.append(edge)
+                used_vertices.add(v1)
+                used_vertices.add(v2)
+            else:
+                # Put back in queue for later
+                temp_queue.append((cost, edge))
         
-        # vertex snapping
-        scale_factor = 2**self.fixed_point_precision_bits
-        coords = np.array([v.co[:] for v in bm.verts], dtype=np.float32)
+        # Put unused edges back in queue
+        for cost, edge in temp_queue:
+            if edge.is_valid:
+                heapq.heappush(self.edge_queue, (cost, id(edge), edge))
+                self.in_queue.add(edge)
+        
+        return batch
+
+    
+    def cleanup(self, cancel, context):
+        """Clean up modal operation"""
+        print(f"PS1 Decimator: Cleanup called, cancel={cancel}, final faces: {len(self.bm.faces)}")
+        context.scene.is_decimating = False
+        context.scene.decimation_progress = 100
+        context.window_manager.event_timer_remove(self._timer)
+        
+        if cancel:
+            self.report({'INFO'}, "Decimation cancelled")
+            self.bm.free()
+            return
+        
+        # Apply vertex quantization (PS1 fixed-point precision)
+        scale_factor = 2 ** self.fixed_point_precision_bits
+        coords = np.array([v.co[:] for v in self.bm.verts], dtype=np.float32)
         coords = np.round(coords * scale_factor) / scale_factor
-        for v, c in zip(bm.verts, coords):
+        for v, c in zip(self.bm.verts, coords):
             v.co = c
-        
-        # uv snapping
-        for slot in obj.material_slots:
+
+        # Process materials and textures
+        for slot in self.obj.material_slots:
             if slot.material:
-                replace_material_with_downsampled(slot.material, self.tex_size, self.texture_export_path)
+                replace_material_with_downsampled(
+                    slot.material, 
+                    self.tex_size, 
+                    export_path=self.texture_export_path if self.texture_export_path else None
+                )
+                
+        # Remove doubles and recalc normals
+        bmesh.ops.remove_doubles(self.bm, verts=self.bm.verts, dist=1e-6)
+        bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
+
+        # Apply changes to mesh
+        end_faces = len(self.bm.faces)
+        self.bm.to_mesh(self.obj.data)
+        self.bm.free()
+        self.obj.data.update()
         
-        bm.to_mesh(obj.data)
-        bm.free()
-        obj.data.update()
+        # Apply flat shading for PS1 look
         bpy.ops.object.shade_flat()
         
-        return {"FINISHED"}
+        # Final report
+        self.report({'INFO'}, f"PS1 Decimation Complete! Faces: {self.start_faces} → {end_faces} (−{self.start_faces - end_faces})")
         
 def register():
     bpy.utils.register_class(OBJECT_OT_ps1_decimate)
