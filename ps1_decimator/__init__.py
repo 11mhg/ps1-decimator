@@ -3,6 +3,12 @@ from . import operators, ui
 
 LOGGER = logging.getLogger(__name__)
 
+import importlib
+
+if "bpy" in locals():
+    importlib.reload(operators)
+    importlib.reload(ui)
+
 def register():
     """
     Registers all classes in this module.

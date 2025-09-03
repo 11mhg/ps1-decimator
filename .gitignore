@@ -1,3 +1,4 @@
+wheels/*.whl
 data/*.png
 data/
 # Python
