@@ -1,30 +1,25 @@
+"""Add-on bootstrap: wire up operators and UI panel."""
+
 import logging
+import importlib
 from . import operators, ui
 
 LOGGER = logging.getLogger(__name__)
-
-import importlib
 
 if "bpy" in locals():
     importlib.reload(operators)
     importlib.reload(ui)
 
-def register():
-    """
-    Registers all classes in this module.
 
-    This function is called when the add-on is activated in the preferences.
-    """
+def register() -> None:
+    """Register all add-on classes and UI."""
     operators.register()
     ui.register()
     print("Registered")
 
-def unregister():
-    """
-    Unregisters all classes in this module.
 
-    This function is called when the add-on is deactivated in the preferences.
-    """
+def unregister() -> None:
+    """Unregister all add-on classes and UI."""
     ui.unregister()
     operators.unregister()
     print("Unregistered")

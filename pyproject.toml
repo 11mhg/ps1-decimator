@@ -9,7 +9,13 @@ readme = "README.md"
 requires-python = ">=3.11.0,<3.12.0"
 dependencies = [
     "bpy (>=4.5.1,<5.0.0)",
-    "numpy (>=1.26.0,<2.0.0)"
+    "numpy (>=1.26.0)",
+    "typing_extensions (>=4.8.0)",
+    "sympy (>=1.12)",
+    "networkx (>=3.2)",
+    "filelock (>=3.12)",
+    "fsspec (>=2024.6.0)",
+    "jinja2 (>=3.1)"
 ]
 
 

@@ -49,7 +49,6 @@ ps1_decimator
 │  ├─ nbformat-5.10.4-py3-none-any.whl
 │  ├─ nest_asyncio-1.6.0-py3-none-any.whl
 │  ├─ numpy-2.3.2-cp311-cp311-win_amd64.whl
-│  ├─ open3d-0.19.0-cp311-cp311-win_amd64.whl
 │  ├─ packaging-25.0-py3-none-any.whl
 │  ├─ parso-0.8.5-py2.py3-none-any.whl
 │  ├─ platformdirs-4.4.0-py3-none-any.whl
