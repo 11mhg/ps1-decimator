@@ -5,12 +5,12 @@ Blender 4.2+ can install and auto-update extensions from a static repository.
 Add this repository in Blender:
 
 - Open Blender → Get Extensions → Repositories → [+] Add Remote Repository
-- URL: `https://<your-username>.github.io/<your-repo>/index.json`
+- URL: `https://11mhg.github.io/ps1-decimator/index.json`
 - Save. The extension appears in the Extensions browser and updates automatically.
 
 Drag-and-drop install link (optional):
 
-- Visit: `https://<your-username>.github.io/<your-repo>/extensions.html`
+- Visit: `https://11mhg.github.io/ps1-decimator/extensions.html`
 - Drag the “Download ZIP (with metadata)” button into Blender.
 
 Local testing (optional):
