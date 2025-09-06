@@ -7,6 +7,7 @@ on:
     paths:
       - blender_manifest.toml
       - __init__.py
+      - ps1_decimator.py
       - ps1_decimator/**
       - icons/**
       - README.md
