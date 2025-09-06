@@ -28,6 +28,5 @@ paths = [
   "ps1_decimator",
   "icons/icon.png",
   "README.md",
-  "LICENSE",
-  "wheels/*.whl",
+  "LICENSE"
 ]
