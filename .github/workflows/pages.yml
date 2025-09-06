@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   deploy:
+    container: linuxserver/blender:4.5.2
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -23,6 +24,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare docs and download latest stable ZIP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p docs
+          if ! command -v curl >/dev/null 2>&1; then
+            (apt-get update && apt-get install -y curl ca-certificates) || (apk add --no-cache curl) || (yum install -y curl) || true
+          fi
+          curl -fL -o docs/ps1_decimator.zip "https://github.com/${{ github.repository }}/releases/latest/download/ps1_decimator.zip" || echo "Latest release ZIP not available yet; continuing without it."
+
+      - name: Generate extensions index.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f docs/ps1_decimator.zip ]; then
+            blender --command extension server-generate --repo-dir docs
+          else
+            echo "No ZIP found; skipping JSON generation."
+          fi
 
       - name: Upload Pages artifact (docs/)
         uses: actions/upload-pages-artifact@v3
@@ -32,4 +53,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
