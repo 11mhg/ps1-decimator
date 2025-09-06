@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - blender_manifest.toml
+      - __init__.py
+      - ps1_decimator/**
+      - icons/**
+      - README.md
+      - LICENSE
+      - .github/workflows/build.yml
   workflow_dispatch:
 
 permissions:
