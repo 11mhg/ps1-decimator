@@ -26,7 +26,7 @@ jobs:
           set -euxo pipefail
           mkdir -p dist
           # Build via Blender’s extensions CLI (requires Blender 4.2+)
-          blender --command extension build --output dist .
+          blender --command extension build --output-dir dist --source-dir .
 
       - name: Normalize names and expose outputs
         id: build
