@@ -1,0 +1,68 @@
+name: Build Add-on ZIP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: blender:4.2.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Blender version
+        run: blender --version
+
+      - name: Package with Blender CLI
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          # Build via Blender’s extensions CLI (requires Blender 4.2+)
+          blender --command extension build --output dist .
+
+      - name: Normalize names and expose outputs
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          addon_id=$(grep -Po '^\s*id\s*=\s*"\K[^"]+' blender_manifest.toml)
+          version=$(grep -Po '^\s*version\s*=\s*"\K[^"]+' blender_manifest.toml)
+          src_zip=$(ls -1 dist/*.zip | head -n1)
+          versioned_zip="dist/${addon_id}-${version}.zip"
+          stable_zip="dist/${addon_id}.zip"
+          cp -f "$src_zip" "$versioned_zip"
+          cp -f "$src_zip" "$stable_zip"
+          echo "addon_id=$addon_id" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "versioned_zip=$versioned_zip" >> "$GITHUB_OUTPUT"
+          echo "stable_zip=$stable_zip" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (versioned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.addon_id }}-${{ steps.build.outputs.version }}
+          path: ${{ steps.build.outputs.versioned_zip }}
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Create/Update "latest" release and upload stable asset
+        uses: ncipollo/release-action@v1
+        with:
+          tag: latest
+          name: Latest (auto)
+          allowUpdates: true
+          makeLatest: true
+          prerelease: true
+          replacesArtifacts: true
+          artifacts: ${{ steps.build.outputs.stable_zip }}
+          artifactContentType: application/zip
+          body: |
+            Automated build from ${{ github.sha }}.
+            Add-on ID: ${{ steps.build.outputs.addon_id }} | Version: ${{ steps.build.outputs.version }}

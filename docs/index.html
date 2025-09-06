@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PS1 Decimator — Latest Build</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; margin: 2rem; line-height: 1.5; }
+      .box { border: 1px solid #ddd; padding: 1rem 1.25rem; border-radius: 8px; max-width: 720px; }
+      a.button { display: inline-block; padding: 0.6rem 1rem; background: #0969da; color: #fff; text-decoration: none; border-radius: 6px; }
+      small { color: #666; }
+      code { background: #f6f8fa; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h1>PS1 Decimator — Latest Build</h1>
+      <p>Download the latest Blender add-on ZIP (auto-updated on every push to <code>main</code>):</p>
+      <p><a id="dl" class="button" href="#" rel="noopener">Download ZIP</a></p>
+      <p id="note"><small>Generating link…</small></p>
+    </div>
+    <script>
+      (function() {
+        function repoFromLocation() {
+          const host = location.hostname;
+          const parts = location.pathname.split('/').filter(Boolean);
+          if (host.endsWith('github.io') && parts.length >= 1) {
+            return { owner: host.split('.')[0], repo: parts[0] };
+          }
+          return null;
+        }
+        const info = repoFromLocation();
+        const addonId = 'ps1_decimator';
+        const a = document.getElementById('dl');
+        const note = document.getElementById('note');
+        if (info) {
+          const url = `https://github.com/${info.owner}/${info.repo}/releases/latest/download/${addonId}.zip`;
+          a.href = url;
+          note.innerHTML = `<small>Links to latest release asset: <code>${addonId}.zip</code></small>`;
+        } else {
+          note.innerHTML = '<small>Open via GitHub Pages to auto-resolve the latest ZIP link.</small>';
+        }
+      })();
+    </script>
+  </body>
+  </html>
+
