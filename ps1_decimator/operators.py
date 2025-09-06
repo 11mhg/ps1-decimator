@@ -1,14 +1,9 @@
-"""
-PS1-style decimator using Blender's native modifiers (modal).
+"""Modal PS1-style decimator using Blender's native modifiers.
 
-Pipeline:
-- Decimate (collapse) to a target triangle count
-- Optional Triangulate pass for consistent PS1 topology
-- Flat shading + disable auto smooth
-- Quantize vertices to a 1/(2^bits) grid and weld by distance
-
-This operator is modal and runs in small steps to keep the UI responsive.
-No external libraries (Open3D/Torch) are used.
+Runs in small steps to keep the UI responsive:
+- Decimate (collapse) → optional Triangulate → Flat shading
+- Quantize vertices to 1/(2^bits) grid → Weld by distance
+Optional texture downsample + color quantization at the end.
 """
 
 from __future__ import annotations
@@ -18,6 +13,7 @@ from typing import Optional
 
 import bpy
 import bmesh
+from . import materials as ps1m
 
 _PFX = "[PS1]"
 
@@ -27,6 +23,7 @@ _PFX = "[PS1]"
 # -----------------------------------------------------------------------------
 
 def _quantize_mesh_vertices(mesh: bpy.types.Mesh, bits: int) -> None:
+    """Snap vertex positions to a fixed grid (1/(2^bits))."""
     if bits <= 0:
         return
     scale = float(1 << bits)
@@ -38,6 +35,7 @@ def _quantize_mesh_vertices(mesh: bpy.types.Mesh, bits: int) -> None:
 
 
 def _merge_by_distance(mesh: bpy.types.Mesh, dist: float) -> None:
+    """Weld coincident vertices within `dist` using bmesh remove_doubles."""
     bm = bmesh.new()
     try:
         bm.from_mesh(mesh)
@@ -48,6 +46,7 @@ def _merge_by_distance(mesh: bpy.types.Mesh, dist: float) -> None:
 
 
 class _ModeGuard:
+    """Context manager to temporarily switch object to OBJECT mode."""
     def __init__(self, obj: bpy.types.Object):
         self.obj = obj
         self._mode = obj.mode if obj is not None else 'OBJECT'
@@ -103,6 +102,33 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
         name="Keep Modifiers",
         description="Leave Decimate/Triangulate modifiers on the object instead of applying",
         default=False,
+    )
+
+    # Texture processing
+    process_textures: bpy.props.BoolProperty(  # type: ignore
+        name="Process Textures",
+        description="Downsample and color-quantize textures on materials",
+        default=True,
+    )
+    texture_target_size: bpy.props.IntProperty(  # type: ignore
+        name="Texture Size",
+        description="Approximate max dimension (px) to scale textures down to",
+        default=128,
+        min=8,
+        soft_max=1024,
+    )
+    texture_color_bits: bpy.props.IntProperty(  # type: ignore
+        name="Color Bit Depth",
+        description="Total RGB bits (e.g., 15 → 5 bits/channel). If ≤8, treated as per-channel bits.",
+        default=15,
+        min=1,
+        max=24,
+    )
+    texture_export_path: bpy.props.StringProperty(  # type: ignore
+        name="Export Folder",
+        description="Optional folder to save processed textures as PNGs",
+        default="",
+        subtype='DIR_PATH',
     )
 
     # Modal state
@@ -246,7 +272,18 @@ class OBJECT_OT_ps1_decimate(bpy.types.Operator):
                     obj.data.update()
 
             elif step == "finish":
-                pass
+                # Optional texture processing on materials (downsample + quantize)
+                if bool(getattr(self, 'process_textures', True)):
+                    try:
+                        ps1m.process_object_materials(
+                            obj,
+                            tex_size=int(getattr(self, 'texture_target_size', 128)),
+                            color_bit_depth=int(getattr(self, 'texture_color_bits', 15)),
+                            export_path=(getattr(self, 'texture_export_path', '').strip() or None),
+                        )
+                        print(f"{_PFX} Textures processed: size={getattr(self,'texture_target_size',128)} color_bits={getattr(self,'texture_color_bits',15)} export={(getattr(self,'texture_export_path','') or 'none')}")
+                    except Exception as e:
+                        print(f"{_PFX} Texture processing failed: {e}")
 
         except Exception as e:
             self._error = str(e)
@@ -280,4 +317,3 @@ def register() -> None:
 def unregister() -> None:
     bpy.types.VIEW3D_MT_object.remove(menu_func)
     bpy.utils.unregister_class(OBJECT_OT_ps1_decimate)
-
