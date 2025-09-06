@@ -21,6 +21,7 @@ jobs:
         run: blender --version
 
       - name: Package with Blender CLI
+        shell: bash
         run: |
           set -euxo pipefail
           mkdir -p dist
