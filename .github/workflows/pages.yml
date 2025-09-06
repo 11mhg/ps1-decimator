@@ -31,7 +31,7 @@ jobs:
           set -euxo pipefail
           mkdir -p docs
           # Assume a latest release exists and fail if not downloadable
-          curl -fL -o docs/ps1_decimator.zip "https://github.com/${{ github.repository }}/releases/latest/download/ps1_decimator.zip"
+          curl -fL -o docs/ps1_decimator.zip "https://github.com/11mhg/ps1-decimator/releases/download/latest/ps1_decimator.zip"
 
       - name: Generate extensions index.json
         shell: bash
