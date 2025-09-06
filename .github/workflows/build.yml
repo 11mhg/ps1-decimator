@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: blender:4.2.0
+    container: linuxserver/blender:4.5.2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,8 +32,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          addon_id=$(grep -Po '^\s*id\s*=\s*"\K[^"]+' blender_manifest.toml)
-          version=$(grep -Po '^\s*version\s*=\s*"\K[^"]+' blender_manifest.toml)
+          addon_id=$(sed -nE 's/^\s*id\s*=\s*"([^"]+)".*/\1/p' blender_manifest.toml | head -n1)
+          version=$(sed -nE 's/^\s*version\s*=\s*"([^"]+)".*/\1/p' blender_manifest.toml | head -n1)
           src_zip=$(ls -1 dist/*.zip | head -n1)
           versioned_zip="dist/${addon_id}-${version}.zip"
           stable_zip="dist/${addon_id}.zip"
