@@ -30,20 +30,26 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p docs
-          if ! command -v curl >/dev/null 2>&1; then
-            (apt-get update && apt-get install -y curl ca-certificates) || (apk add --no-cache curl) || (yum install -y curl) || true
-          fi
-          curl -fL -o docs/ps1_decimator.zip "https://github.com/${{ github.repository }}/releases/latest/download/ps1_decimator.zip" || echo "Latest release ZIP not available yet; continuing without it."
+          # Assume a latest release exists and fail if not downloadable
+          curl -fL -o docs/ps1_decimator.zip "https://github.com/${{ github.repository }}/releases/latest/download/ps1_decimator.zip"
 
       - name: Generate extensions index.json
         shell: bash
         run: |
-          set -euo pipefail
-          if [ -f docs/ps1_decimator.zip ]; then
-            blender --command extension server-generate --repo-dir docs
-          else
-            echo "No ZIP found; skipping JSON generation."
-          fi
+          set -euxo pipefail
+          blender --version
+          blender --command extension server-generate --repo-dir docs
+
+      - name: Add .nojekyll and list docs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          touch docs/.nojekyll
+          # Verify required files are present; fail otherwise
+          test -f docs/extensions.html
+          test -f docs/index.json
+          echo "Docs content:"
+          ls -lah docs
 
       - name: Upload Pages artifact (docs/)
         uses: actions/upload-pages-artifact@v3
