@@ -38,8 +38,12 @@ jobs:
           src_zip=$(ls -1 dist/*.zip | head -n1)
           versioned_zip="dist/${addon_id}-${version}.zip"
           stable_zip="dist/${addon_id}.zip"
-          cp -f "$src_zip" "$versioned_zip"
-          cp -f "$src_zip" "$stable_zip"
+          if [ "$src_zip" != "$versioned_zip" ]; then
+            cp -f "$src_zip" "$versioned_zip"
+          fi
+          if [ "$src_zip" != "$stable_zip" ]; then
+            cp -f "$src_zip" "$stable_zip"
+          fi
           echo "addon_id=$addon_id" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "versioned_zip=$versioned_zip" >> "$GITHUB_OUTPUT"
