@@ -1,16 +1,10 @@
 name: Deploy Pages
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - docs/**
-      - .github/workflows/pages.yml
+  # Run only after the build workflow completes, or manually
   workflow_run:
     workflows: ["Build Add-on ZIP"]
-    types:
-      - completed
+    types: [completed]
   workflow_dispatch:
 
 permissions:

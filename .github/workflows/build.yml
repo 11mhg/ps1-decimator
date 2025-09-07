@@ -57,6 +57,10 @@ jobs:
           echo "versioned_zip=$versioned_zip" >> "$GITHUB_OUTPUT"
           echo "stable_zip=$stable_zip" >> "$GITHUB_OUTPUT"
 
+      - name: Show ZIP contents
+        shell: bash
+        run: unzip -l dist/*.zip || true
+
       - name: Upload artifact (versioned)
         uses: actions/upload-artifact@v4
         with:
