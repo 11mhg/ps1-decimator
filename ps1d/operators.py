@@ -317,3 +317,4 @@ def register() -> None:
 def unregister() -> None:
     bpy.types.VIEW3D_MT_object.remove(menu_func)
     bpy.utils.unregister_class(OBJECT_OT_ps1_decimate)
+

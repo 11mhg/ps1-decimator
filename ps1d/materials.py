@@ -152,3 +152,4 @@ def process_object_materials(
             export_path=export_path,
             _cache=cache,
         )
+

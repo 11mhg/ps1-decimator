@@ -80,3 +80,4 @@ def unregister() -> None:
     for prop in ('poly_count_target', 'fixed_point_precision_bits', 'use_triangulate', 'keep_modifiers', 'process_textures', 'texture_target_size', 'texture_color_bits', 'texture_export_path'):
         if hasattr(Scene, prop):
             delattr(Scene, prop)
+

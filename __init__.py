@@ -9,7 +9,7 @@ register/unregister functions.
 import importlib
 
 def _submodule():
-    return importlib.import_module(f"{__package__}.ps1_decimator")
+    return importlib.import_module(f"{__package__}.ps1d")
 
 
 def register() -> None:

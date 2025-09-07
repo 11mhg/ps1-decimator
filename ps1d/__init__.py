@@ -24,4 +24,3 @@ def unregister() -> None:
     ui.unregister()
     operators.unregister()
     print("PS1 Decimator: unregistered")
-

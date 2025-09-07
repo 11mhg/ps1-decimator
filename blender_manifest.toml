@@ -25,7 +25,7 @@ python = ["numpy>=1.26"]
 [build]
 paths = [
   "__init__.py",
-  "ps1_decimator",
+  "ps1d",
   "icons/icon.png",
   "README.md",
   "LICENSE"
