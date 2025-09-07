@@ -1,10 +1,11 @@
 name: Deploy Pages
 
 on:
-  # Run only after the build workflow completes, or manually
-  workflow_run:
-    workflows: ["Build Add-on ZIP"]
-    types: [completed]
+  push:
+    branches:
+      - main
+    paths:
+      - 'dist/*.zip'
   workflow_dispatch:
 
 permissions:
@@ -26,13 +27,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare docs and download latest stable ZIP
+      - name: Prepare docs from dist ZIP
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p docs
-          # Assume a latest release exists and fail if not downloadable
-          curl -fL -o docs/ps1_decimator.zip "https://github.com/11mhg/ps1-decimator/releases/download/latest/ps1_decimator.zip"
+          # Copy committed ZIP(s) from dist/ into docs/
+          if compgen -G "dist/*.zip" > /dev/null; then
+            cp -f dist/*.zip docs/
+          else
+            echo "No ZIP files found in dist/*.zip" >&2
+            exit 1
+          fi
 
       - name: Generate extensions index.json
         shell: bash
